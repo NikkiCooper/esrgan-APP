@@ -106,17 +106,17 @@ Using --root_preset (p1 == /home/nikki/+Graphics/+Models):
 
 ---
 
-## CLI options
+## CLI Options
 
-- Root and paths:
+- **Root and Paths: (mutually exclusive)** 
   - --root ROOT
   - --root_preset {p1,p2,p3,p4,p5,p6}
   - --Path Studio/Model
 
-- Set selection:
+- **Set Selection:**
   - --sets [SETS ...]
 
-    Format options:
+    **Format Options:**
 
     - '*' → all sets
     - 'NNN' → single set (e.g., 001)
@@ -124,23 +124,23 @@ Using --root_preset (p1 == /home/nikki/+Graphics/+Models):
     - 'NNN-' → from NNN to end
     - Multiple explicit sets → e.g., 001 002 004 006
 
-- Output formatting:
+- **Output Formatting:**
   - --suffix SUFFIX → optional; auto prepends _
   - --ext {png|jpg} → default: png
 
-- Model selection:
+- **ESRGAN Model Selection:**
   - --model {x4v3,x4plus,net_x4plus,x2plus,x4plus_anime_6B} → default: x4v3
   - --model_help
 
-- Enhancement:
+- **Enhancement:**
   - --face_enhance → apply GFPGAN after upscaling
 
-- Tiling and scale:
+- **Tiling and Scale:**
   - --tile TILE → default: 800
   - --tile_pad TILE_PAD → default: 10
   - --outscale OUTSCALE → default: 1.0
 
-- GPU:
+- **GPU:**
   - --gpu_id GPU_ID → default: 0
 
 ---
@@ -212,6 +212,6 @@ Run the GUI via the `esrgan_app.sh` script:
 
     esrgan_app.sh
 
-The GUI should appear after a few seconds.
+The GUI should appear after a few seconds. Please note that the GUI was developed and tested on Linux only.  Additionally, the GUI was developed using 4K-UHD displays so YMMV on lower resolution displays. No attempt has been made to optimize the GUI for smaller displays.
 
 The rest of the documentation is currently work in progress.
