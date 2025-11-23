@@ -17,28 +17,7 @@ bc = Bcolors()
 bc.clear()
 
 def cmdLineOptions(argv, ROOT_PRESETS):
-    """
-    Parse and process command-line arguments for an ESRGAN-based image restoration and
-    upscaling application. The function utilizes argparse to define and parse a range of
-    parameters related to root directories, images, models, GPU settings, scaling options,
-    and other configurations. The function ensures required arguments are set and enforces
-    mutual exclusivity between specific options.
 
-    :param ROOT_PRESET_1: Root directory preset corresponding to `p1`.
-    :type ROOT_PRESET_1: str
-    :param ROOT_PRESET_2: Root directory preset corresponding to `p2`.
-    :type ROOT_PRESET_2: str
-    :param ROOT_PRESET_3: Root directory preset corresponding to `p3`.
-    :type ROOT_PRESET_3: str
-    :param ROOT_PRESET_4: Root directory preset corresponding to `p4`.
-    :type ROOT_PRESET_4: str
-    :param ROOT_PRESET_5: Root directory preset corresponding to `p5`.
-    :type ROOT_PRESET_5: str
-    :param ROOT_PRESET_6: Root directory preset corresponding to `p6`.
-    :type ROOT_PRESET_6: str
-    :return: Parsed command-line arguments incorporating all required and optional settings.
-    :rtype: argparse.Namespace
-    """
     MODEL_MAPPING= {
         "x4v3":0,
         "x4plus":1,

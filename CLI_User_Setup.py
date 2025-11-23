@@ -9,12 +9,12 @@ from pathlib import Path
 # ===== CONFIG =====
 # User specified presets:
 _paths = [
-    "/home/nikki/+Graphics/NonNude/+Models",        # Preset_1
+    "/home/nikki/+Graphics/+Models",                # Preset_1
     "/home/nikki/+ImagesToPrint",                   # Preset_2
-    "/home/nikki/+Graphics/NonNude/+Anime",         # Preset_3
-    "/home/nikki/+Graphics/NonNude/+Private",       # Preset_4
-    "/home/nikki/+Graphics/NonNude/+Cartoons",      # Preset_5
-    "/mnt/17E0E95D/+Scratch/Images/mpvScreenShots"  # Preset_6
+    "/home/nikki/+Graphics/+Anime",                 # Preset_3
+    "/home/nikki/+Graphics/+Private",               # Preset_4
+    "/home/nikki/+Graphics/+Cartoons",              # Preset_5
+    "/home/nikki/+Graphics/Other"                   # Preset_6
 ]
 
 ROOT_PRESETS = [Path(p) for p in _paths]
