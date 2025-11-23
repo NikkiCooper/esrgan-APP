@@ -1,0 +1,6 @@
+esrgan-process_video.py
+GUI_User_Setup_local.py
+CLI_User_Setup_local.py
+__pycache__/
+*.pyc
+.idea/

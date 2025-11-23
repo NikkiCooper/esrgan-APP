@@ -1,0 +1,37 @@
+Real ESRGAN Model Help:
+x4v3 (realesr-general-x4v3):
+ • Small, efficient model optimized for general use
+ • Best balance of speed and quality
+ • Excellent for photos and natural images
+ • Recommended starting point for most uses
+
+x4plus (RealESRGAN_x4plus):
+ • High-quality model with superior detail recovery
+ • Better preservation of textures and fine details
+ • Slower but produces premium results
+ • Ideal for important images where quality is priority
+
+net_x4plus (RealESRNet_x4plus):
+ • Conservative enhancement approach
+ • Maintains high fidelity to source material
+ • Reduces risk of over-processing artifacts
+ • Perfect for subtle improvements and restoration
+
+x2plus (RealESRGAN_x2plus):
+ • 2x upscaling with gentle enhancement
+ • Minimizes artificial-looking results
+ • More natural-looking output
+ • Best for slight resolution increases
+
+anime_6B (RealESRGAN_x4plus_anime_6B):
+ • Specialized for anime and artwork
+ • Preserves sharp edges and line art
+ • Maintains color consistency
+ • Ideal for illustrations and stylized content
+
+Processing Tips:
+ • Start with x4v3 for quick results
+ • Try x4plus if you need more detail
+ • Use x2plus for minimal artifacts
+ • Choose anime_6B for artwork
+ • Consider net_x4plus for natural preservation
