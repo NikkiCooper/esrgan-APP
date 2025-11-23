@@ -29,7 +29,6 @@ NOTE: This project *requires* an already working installation of Real-ESRGAN and
 - SetNumber → three-digit set ID (e.g., 001)
 - ImageNumber → three-digit sequence (001–999)
 - ext → png or jpg
-- Optional suffix → appended before extension as _Suffix (e.g., _X4V3)
 
 ### Example layout
 
@@ -79,6 +78,7 @@ Output (with suffix set to X4V3 and extension set to jpg):
 
 ## CLI usage
 
+First: Edit **CLI_User_Setup.py** to configure root_presets and other paths.
 Invoke the CLI via the esrgan_app.sh script. It is recommended to create a symlink to esrgan_app.sh in a directory on your $PATH.
 
 ### Root selection (mutually exclusive)
@@ -191,6 +191,7 @@ Run the help command to confirm everything is working:
 
 ## GUI Installation
 
+First, follow the steps above to setup the CLI. Next edit **GUI_User_Setup.py** to setup necessary directories and paths.
 The GUI requires a small additional setup step to install its resources.
 
 - Run the provided `install.sh` script:
