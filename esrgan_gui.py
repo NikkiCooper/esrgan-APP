@@ -26,6 +26,7 @@ class ImageProcessor(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
+    error_recovery_signal = pyqtSignal(str)
 
     def __init__(self, input_paths, output_dir, model_name, outscale, tile,
                  tile_pad, gpu_id, face_enhance, suffix="AI", ext="png"):
@@ -136,25 +137,74 @@ class ImageProcessor(QThread):
         self.progress.emit(full_msg)
 
         try:
-            self.current_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = self.current_process.communicate()
+            # Use Popen to allow cancellation and pipe capture
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
 
-            # Check return code before clearing current_process
-            if self.current_process.returncode != 0:
-                self.error.emit(f"Error processing {img_path.name}: {stderr.decode()}")
+            # Wait for the process to finish and capture output
+            stdout, stderr = self.current_process.communicate()
+            return_code = self.current_process.returncode
+
+            # If cancellation was requested (and handled by terminate in cancel()), stop here.
+            if self.is_cancelled:
+                self.current_process = None
+                return False
+
+            # Determine failure:
+            # 1. Non-zero return code
+            # 2. Error keywords in output (even if return code is 0)
+            failed = (return_code != 0)
+
+            combined_output = (stderr or "") + (stdout or "")
+
+            # Check for specific error markers in the output
+            # This catches cases where the script prints an error but exits with 0
+            error_markers = ["CUDA out of memory", "Traceback (most recent call last)", "RuntimeError:", "Error:"]
+            if not failed:
+                for marker in error_markers:
+                    if marker in combined_output:
+                        failed = True
+                        break
+
+            if failed:
+                # Pause the thread to wait for user input
+                self.mutex.lock()
+                self.is_paused = True
+                self.mutex.unlock()
+
+                error_details = (
+                    f"--- STDERR ---\n{stderr}\n\n"
+                    f"--- STDOUT ---\n{stdout}"
+                )
+
+                if not combined_output.strip():
+                    error_details = f"Process failed with no output (Return Code: {return_code})"
+
+                # Emit signal to show dialog
+                self.error_recovery_signal.emit(f"Error processing {img_path.name}:\n\n{error_details}")
+
+                # Wait until the user clicks Continue (resumes) or Cancel (cancels+resumes)
+                self.check_paused()
+
                 self.current_process = None
                 return False
 
             self.current_process = None
-
-            if self.is_cancelled:
-                return False
-
             self.progress.emit(f"Completed: {img_path.name}")
             return True
 
         except Exception as e:
-            self.error.emit(f"Error processing {img_path.name}: {str(e)}")
+            self.mutex.lock()
+            self.is_paused = True
+            self.mutex.unlock()
+
+            self.error_recovery_signal.emit(f"Error processing {img_path.name}: {str(e)}")
+            self.check_paused()
+
             self.current_process = None
             return False
 
@@ -876,6 +926,7 @@ class ESRGANGui(QMainWindow):
 
         self.processor.progress.connect(self.update_progress)
         self.processor.error.connect(self.show_error)
+        self.processor.error_recovery_signal.connect(self.show_recovery_error)
         self.processor.finished.connect(self.processing_finished)
         self.processor.start()
 
@@ -903,6 +954,29 @@ class ESRGANGui(QMainWindow):
             self.enable_controls()
             # Only show error message if we're not cancelling
             QMessageBox.critical(self, 'Error', message)
+
+    def show_recovery_error(self, message):
+        """
+        Display a modal error dialog allowing the user to Continue or Cancel.
+        Triggered by ImageProcessor when a subprocess error occurs.
+        """
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Critical)
+        msg.setWindowTitle("Real-ESRGAN Inference Error")
+        msg.setText("An error occurred during processing.")
+        msg.setInformativeText(message)
+
+        continue_btn = msg.addButton("Continue", QMessageBox.ActionRole)
+        cancel_btn = msg.addButton("Cancel", QMessageBox.RejectRole)
+
+        msg.exec_()
+
+        if msg.clickedButton() == cancel_btn:
+            self.cancel_processing()
+        else:
+            # User chose to continue; resume the worker thread
+            if self.processor:
+                self.processor.resume()
 
     def show_model_help(self):
         try:
