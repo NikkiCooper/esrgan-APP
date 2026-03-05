@@ -32,7 +32,11 @@ def cmdLineOptions(argv, ROOT_PRESETS):
     )
 
     # Root Directory Options
-    required_root = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}Root Directory Options.  Required.  One of: {bc.RESET}")
+    required_root = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Root Directory Options\n"
+        f"{bc.Light_Green_f}Required{bc.Light_Blue_f}\n"
+        f"One of {bc.White_f}(mutually exclusive){bc.RESET}"
+    )
     root_required_group = required_root.add_mutually_exclusive_group(required=True)
     root_required_group.add_argument(
         "--root",
@@ -40,7 +44,8 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         #type=str,
         default=None,
         help=(
-            f"{bc.Light_Yellow_f}The base root directory in which all images reside.\n{bc.RESET}"
+            f"{bc.Light_Yellow_f}The base root directory in which all images reside\n"
+            f"{bc.RESET}"
             # f"{bc.BOLD}{bc.Magenta_f}ROOT_DIR = {bc.Green_f}{ROOT_DIR}\n{bc.RESET} "
         )
     )
@@ -49,7 +54,7 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         type=str,
         choices=["p1", "p2", "p3", "p4", "p5", "p6"],
         help=(
-            f"{bc.BOLD}{bc.Light_Yellow_f}Root directory presets.{bc.Light_Blue_f}  One of:\n"
+            f"{bc.BOLD}{bc.Light_Yellow_f}Root directory presets{bc.Light_Blue_f}  One of:\n"
             f"{bc.Cyan_f}p1 = {ROOT_PRESETS[0]}\n"
             f"{bc.White_f}p2 = {ROOT_PRESETS[1]}\n"
             f"{bc.Magenta_f}p3 = {ROOT_PRESETS[2]}\n"
@@ -60,7 +65,11 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         )
     )
     # File Required Options Group
-    required = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}Image Path Options.  Required. One of{bc.RESET}")
+    required = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Image Path Options\n"
+        f"{bc.Light_Green_f}Required{bc.Light_Blue_f}\n"
+        f"One of {bc.White_f}(mutually exclusive){bc.RESET}"
+    )
     file_required_group = required.add_mutually_exclusive_group(required=True)
     file_required_group.add_argument(
         "--Path",
@@ -68,7 +77,8 @@ def cmdLineOptions(argv, ROOT_PRESETS):
                                      type=str,
                                      default=None,
                                      help=(
-                                         f"{bc.BOLD}{bc.Light_Yellow_f}Image path relative to specified root directory.{bc.Green_f} (See above)\n{bc.RESET}"
+                                         f"{bc.BOLD}{bc.Light_Yellow_f}Image path relative to specified root directory{bc.Green_f} (See above)\n"
+                                         f"{bc.RESET}"
                                          #f"{bc.BOLD}{bc.Magenta_f}ROOT_DIR = {bc.Green_f}{ROOT_DIR}\n{bc.RESET} "
                                      )
     )
@@ -78,7 +88,9 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         #type=partial(validate_user_files, root_dir=ROOT_DIR),
         type=str,
         default=None,
-        help=f"{bc.Light_Yellow_f}List of images to process.{bc.RESET}"
+        help=(
+            f"{bc.Light_Yellow_f}List of images to process{bc.RESET}"
+        )
     )
 
     # Optional File Options Group
@@ -89,20 +101,42 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         type=str,
         default=None,
         help=(
-            f"{bc.Light_Yellow_f}Specify which {bc.White_f}SETS{bc.Light_Yellow_f} to process.\n"
+            f"{bc.Light_Yellow_f}Specify which {bc.White_f}SETS{bc.Light_Yellow_f} to process\n"
             f"{bc.Light_Blue_f}Format options:\n"
             f" • {bc.Cyan_f}'*'{bc.White_f} = Process {bc.UNDERLINE}{bc.Green_f}ALL{bc.White_f}{bc.RESET_UNDERLINED} sets\n"
             f" • {bc.Cyan_f}'NNN'{bc.White_f} = Single set number (e.g. '001')\n"
             f" • {bc.Cyan_f}'NNN-MMM'{bc.White_f} = Range of sets (e.g. '001-025')\n"
             f" • {bc.Cyan_f}'NNN-'{bc.White_f} = From set NNN to end\n"
-            f" Multiple ranges can be specified\n{bc.RESET}"
+            f" Multiple ranges can be specified"
+            f"\n{bc.RESET}"
         )
     )
 
-    file_group.add_argument("--suffix", default="", help=f"{bc.Light_Yellow_f}Optional suffix (e.g. V1, V2).\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}''\n{bc.RESET}")
-    file_group.add_argument("--ext", default="png", help=f"{bc.Light_Yellow_f}Output image extension.\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}png{bc.RESET}")
+    file_group.add_argument(
+        "--suffix",
+        default="",
+        help=(
+            f"{bc.Light_Yellow_f}Optional suffix{bc.White_f} (e.g. V1, V2)\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}''"
+            f"\n{bc.RESET}"
+        )
+    )
+    file_group.add_argument(
+        "--ext",
+        default="png",
+        help=(
+            f"{bc.Light_Yellow_f}Output image extension\n"
+            f"{bc.BOLD}{bc.Light_Blue_f}Output Extension Options\nOne of: "
+            f"{bc.BOLD}{bc.Green_f}auto{bc.Light_Yellow_f} | {bc.Cyan_f}jpg{bc.Light_Yellow_f} |{bc.Magenta_f} png{bc.RESET}\n" 
+            f"{bc.BOLD}{bc.Blue_f}auto{bc.RESET}{bc.Light_Yellow_f} means the output image use the same extension as input image\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}png{bc.RESET}"
+
+        )
+    )
     # Models Group
-    model_settings = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}Model Options{bc.RESET}")
+    model_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Model Options{bc.RESET}"
+    )
     model_settings.add_argument(
                    "--model",
                                 type=str,
@@ -110,7 +144,7 @@ def cmdLineOptions(argv, ROOT_PRESETS):
                                 choices=list(MODEL_MAPPING.keys()),
                                 default="x4v3",
                                 help=(
-                                    f"{bc.BOLD}{bc.Light_Blue_f}Model Name Options.  One of: "
+                                    f"{bc.BOLD}{bc.Light_Blue_f}ESRGAN Model Name Options\nOne of: "
                                     f"{bc.BOLD}{bc.Green_f}x4v3, "
                                     f"{bc.Cyan_f}x4plus, "
                                     f"{bc.Yellow_f}net_x4plus, "
@@ -122,46 +156,106 @@ def cmdLineOptions(argv, ROOT_PRESETS):
     model_settings.add_argument(
         "--model_help",
         action="store_true",
-        help=f"{bc.BOLD}{bc.Light_Yellow_f}Gives more information about each available model name specified above.{bc.RESET}"
+        help=(
+            f"{bc.BOLD}{bc.Light_Yellow_f}Gives more information about each available model name specified above{bc.RESET}"
+        )
     )
     # Enhancement Group
     enhancement_settings = parser.add_argument_group(
         f"{bc.BOLD}{bc.Light_Blue_f}Enhancement Options{bc.RESET}"
     )
     enhancement_settings.add_argument(
+        "--denoise_strength",
+        type=float,
+        default=None,
+        help=(
+            f"{bc.BOLD}{bc.Light_Yellow_f}Denoising strength{bc.White_f} (0.0 - 1.0){bc.Light_Yellow_f}\n"
+            f"{bc.Green_f}0{bc.BOLD}{bc.Light_Blue_f} for weak denoise {bc.White_f}(keep noise)\n"
+            f"{bc.Green_f}1{bc.BOLD}{bc.Light_Blue_f} for strong denoise ability\n"
+            f"{bc.Light_Yellow_f}Only used for the {bc.Green_f}x4v3{bc.BOLD}{bc.Light_Blue_f} model\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}0.5\n{bc.RESET}"
+        )
+    )
+    enhancement_settings.add_argument(
         "--face_enhance",
         action="store_true",
-        help=f"{bc.BOLD}{bc.Light_Yellow_f}Use{bc.Light_Blue_f} GFPGAN{bc.Light_Yellow_f} to enhance faces after upscaling.{bc.RESET}"
+        help=(
+            f"{bc.BOLD}{bc.Light_Yellow_f}Use{bc.Light_Blue_f} GFPGAN{bc.Light_Yellow_f} to enhance faces after upscaling{bc.RESET}"
+        )
     )
     # Tile Settings
-    tile_settings = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}Tile Options{bc.RESET}")
+    tile_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Tile Options{bc.RESET}"
+    )
     tile_settings.add_argument(
         "--tile",
         type=int,
         default=800,
-        help=f"{bc.Light_Yellow_f}Tile size for image processing.\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}800\n{bc.RESET}"
+        help=(
+            f"{bc.Light_Yellow_f}Tile size for image processing\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}800\n{bc.RESET}"
+        )
     )
     tile_settings.add_argument(
         "--tile_pad",
         type=int,
         default=10,
-        help=f"{bc.Light_Yellow_f}Tile padding for image processing.\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}10{bc.RESET}"
+        help=(
+            f"{bc.Light_Yellow_f}Tile padding for image processing\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}10{bc.RESET}"
+        )
     )
     # Scale Settings
-    scale_settings = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}Scale Options{bc.RESET}")
+    scale_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Scale Options{bc.RESET}"
+    )
     scale_settings.add_argument(
         "--outscale",
         type=float,
         default=1.0,
-        help=f"{bc.Light_Yellow_f}Output scale factor float (float 0.5, 1, 2, 3.5 ...)\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}1.0{bc.White_f} (do not upscale){bc.RESET}"
+        help=(
+            f"{bc.Light_Yellow_f}Output scale factor float (float 0.5, 1, 2, 3.5 ...)\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}1.0{bc.White_f} (do not upscale){bc.RESET}"
+        )
     )
+
+    # EXIF metadata options
+    exif_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}EXIF Metadata Options{bc.RESET}"
+    )
+    exif_settings.add_argument(
+        "--disable_exif",
+        action="store_true",
+        help=(
+            f"{bc.Light_Yellow_f}Disable writing Real-ESRGAN parameter metadata to output image\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default:{bc.White_f} Disabled{bc.RESET}"
+        )
+    )
+
     # GPU Settings
-    gpu_settings = parser.add_argument_group(f"{bc.BOLD}{bc.Light_Blue_f}GPU Options{bc.RESET}")
+    gpu_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}GPU Options{bc.RESET}"
+    )
     gpu_settings.add_argument(
         "--gpu_id",
         type=int,
         default=0,
-        help=f"{bc.Light_Yellow_f}GPU ID to use for processing.\n{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}0{bc.RESET}"
+        help=(
+            f"{bc.Light_Yellow_f}GPU ID to use for processing\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}0{bc.RESET}"
+        )
+    )
+    # Precision options
+    precision_settings = parser.add_argument_group(
+        f"{bc.BOLD}{bc.Light_Blue_f}Precision Options{bc.RESET}"
+    )
+    precision_settings.add_argument(
+        "--fp32",
+        action="store_true",
+        help=(
+            f"{bc.Light_Yellow_f}Use {bc.Green_f}fp32{bc.Light_Yellow_f} precision during inference\n"
+            f"{bc.BOLD}{bc.Magenta_f}Default: {bc.Green_f}fp16{bc.White_f} (half precision){bc.RESET}"
+        )
     )
 
     args = parser.parse_args(argv)
@@ -170,17 +264,27 @@ def cmdLineOptions(argv, ROOT_PRESETS):
         print_model_help()
         sys.exit(0)
 
+    if args.denoise_strength is not None:
+        if args.model != "x4v3":
+            parser.error(f"--denoise_strength is only valid for the {bc.Green_f}x4v3{bc.Light_Yellow_f} model")
+        else:
+            # Clamp the value between 0.0 and 1.0
+            args.denoise_strength = max(0.0, min(1.0, args.denoise_strength))
+    else:
+        # Default to 0.5 if not specified
+        args.denoise_strength = 0.5
+
     if not args.root_preset and not args.root:
-        parser.error("One of --root OR --root_preset is required.")
+        parser.error("One of --root OR --root_preset is required")
 
     if not args.Path and not args.Files:
-        parser.error("One of --Path OR --Files must be supplied.")
+        parser.error("One of --Path OR --Files must be supplied")
 
     # Add validation for --sets argument
     if args.sets:
         args.sets = validate_sets_argument(args.sets)
 
-    args.model_val_int = int(MODEL_MAPPING.get(args.model, MODEL_MAPPING["x4v3"]))  # Default to "x4v3" if unset\
+    args.model_val_int = int(MODEL_MAPPING.get(args.model, MODEL_MAPPING["x4v3"]))  # Default to "x4v3" if unset
     if args.root_preset:
         root = ""
         match args.root_preset:

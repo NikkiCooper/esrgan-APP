@@ -5,21 +5,31 @@
 #  https://www.gnu.org/licenses/gpl-3.0.html#license-text
 #
 import sys
+import os
 import subprocess
+import time
 from pathlib import Path
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
+
+Image.MAX_IMAGE_PIXELS = None
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QComboBox,
                              QFileDialog, QSpinBox, QDoubleSpinBox, QCheckBox, QLineEdit,
                              QProgressBar, QMessageBox, QListWidget,
-                             QDialog, QDialogButtonBox,QTextEdit)
-from PyQt5.QtCore import (Qt, QThread, QSize, pyqtSignal, QCoreApplication, QCommandLineParser, QCommandLineOption, QMutex, QWaitCondition)
+                             QDialog, QDialogButtonBox, QTextEdit, QSystemTrayIcon, QMenu, QAction)
+from PyQt5.QtCore import (Qt, QThread, QSize, pyqtSignal, QCoreApplication, QCommandLineParser, QCommandLineOption,
+                          QMutex, QWaitCondition)
 from PyQt5.QtGui import QFont
 from PyQt5.QtGui import QIcon
 from GUI_User_Setup import REAL_ESRGAN_SCRIPT, DEFAULT_OUTPUT_DIR, DEFAULT_ROOT_DIR
+
 try:
     from GUI_User_Setup_local import REAL_ESRGAN_SCRIPT, DEFAULT_OUTPUT_DIR, DEFAULT_ROOT_DIR
 except ImportError:
     pass
+
 
 class ImageProcessor(QThread):
     # Define the signals at the class level
@@ -29,7 +39,7 @@ class ImageProcessor(QThread):
     error_recovery_signal = pyqtSignal(str)
 
     def __init__(self, input_paths, output_dir, model_name, outscale, tile,
-                 tile_pad, gpu_id, face_enhance, suffix="AI", ext="png"):
+                 tile_pad, gpu_id, face_enhance, fp32=False, denoise_strength=0.5, suffix="AI", ext="png"):
         super().__init__()
         self.input_paths = input_paths
         self.output_root = Path(output_dir)
@@ -39,15 +49,17 @@ class ImageProcessor(QThread):
         self.tile_pad = str(tile_pad)
         self.gpu_id = str(gpu_id)
         self.face_enhance = face_enhance
+        self.fp32 = fp32
+        self.denoise_strength = f"{denoise_strength:.2f}"
         self.suffix = suffix
         self.ext = ext
         self.is_cancelled = False
         self.current_process = None
-        self.current_img_num = 0            # The number of images processed so far in the current set.
-        self.total_num_images = 0           # The total number of images to be processed in the current set.
-        self.completed_sets_counter = 0     # How many sets have been processed successfully.
+        self.current_img_num = 0  # The number of images processed so far in the current set.
+        self.total_num_images = 0  # The total number of images to be processed in the current set.
+        self.completed_sets_counter = 0  # How many sets have been processed successfully.
         self.total_num_sets_to_process = 0  # Total number of sets to process.
-        self.current_set = None             # Contains the name of the current set being processed.
+        self.current_set = None  # Contains the name of the current set being processed.
 
         self.is_paused = False
         self.mutex = QMutex()
@@ -78,6 +90,51 @@ class ImageProcessor(QThread):
         self.resume()  # Resume if paused so thread can exit
         if self.current_process:
             self.current_process.terminate()
+
+    def embed_metadata(self, output_path):
+        """Wait for the file to be ready, then embed the Process DNA with proper encoding"""
+        # 1. Wait for writer to finish (Max 5 seconds)
+        start_time = time.time()
+        while time.time() - start_time < 5:
+            if output_path.exists():
+                size_1 = output_path.stat().st_size
+                time.sleep(0.2)
+                size_2 = output_path.stat().st_size
+                if size_1 == size_2 and size_1 > 0:
+                    break
+            time.sleep(0.3)
+
+        # 2. Perform the metadata 'Stamp'
+        try:
+            # Fixed string formatting with clear separators
+            dna_parts = [
+                f"Real-ESRGAN Processor - Nikki Cooper",
+                f"Model: {self.model_name}",
+                f"Denoise: {self.denoise_strength if 'x4v3' in self.model_name else 'N/A'}",
+                f"Outscale: {self.outscale}",
+                f"Tile: {self.tile}",
+                f"TilePad: {self.tile_pad}",
+                f"FaceEnhance: {'Enabled' if self.face_enhance else 'Disabled'}",
+                f"FP32: {'Enabled' if self.fp32 else 'Disabled'}"
+            ]
+            dna = " | ".join(dna_parts)
+
+            img = Image.open(output_path)
+            if output_path.suffix.lower() == '.png':
+                metadata = PngInfo()
+                metadata.add_text("ESRGAN_Process_DNA", dna)
+                img.save(output_path, pnginfo=metadata)
+            else:
+                # JPG UserComment (0x9286) requires a 8-byte prefix for encoding
+                # 'ASCII\0\0\0' is the standard for plain text
+                exif = img.getexif()
+                comment = b'ASCII\0\0\0' + dna.encode('ascii', errors='replace')
+                exif[0x9286] = comment
+                img.save(output_path, exif=exif, quality=95, subsampling=0)
+            return True
+        except Exception as e:
+            print(f"Metadata fail on {output_path.name}: {e}")
+            return False
 
     def process_single_file(self, img_path, root_dir):
         self.check_paused()
@@ -113,6 +170,13 @@ class ImageProcessor(QThread):
 
         if self.face_enhance:
             cmd.append("--face_enhance")
+
+        if self.fp32:
+            cmd.append("--fp32")
+
+        # Only add denoise_strength if using the general-x4v3 model
+        if "realesr-general-x4v3" in self.model_name:
+            cmd.extend(["-dn", self.denoise_strength])
 
         # Create a progress message for the current image
         proc_img_msg = (
@@ -193,6 +257,12 @@ class ImageProcessor(QThread):
                 self.current_process = None
                 return False
 
+            # --- NEW: STAMP AFTER SUCCESS ---
+            out_name = f"{img_path.stem}_{self.suffix}.{self.ext}"
+            output_file = output_dir / out_name
+            if output_file.exists():
+                self.embed_metadata(output_file)
+
             self.current_process = None
             self.progress.emit(f"Completed: {img_path.name}")
             return True
@@ -262,6 +332,7 @@ class ImageProcessor(QThread):
                 self.progress.emit("Processing cancelled")
             self.finished.emit()
 
+
 class ESRGANGui(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -273,7 +344,47 @@ class ESRGANGui(QMainWindow):
         self.is_paused = False
         self.controls = []  # List to hold all controls that should be disabled during processing
         self.image_count = 0
+        self.last_tray_msg = "Ready"  # Store the last progress message here
         self.checkmark = Path.home() / '.local/share/esrgan-APP/Resources/checkmark_white-8x8.png'
+
+        # Setup System Tray
+        self.tray_icon = QSystemTrayIcon(self)
+        # Use an existing icon or a generic one
+        icon_path = Path.home() / '.local/share/esrgan-APP/Resources/checkmark.png'
+        self.tray_icon.setIcon(QIcon(str(icon_path)))
+
+        # Setup System Tray
+        self.tray_icon = QSystemTrayIcon(self)
+
+        # Use the logo for the tray icon
+        icon_path = Path.home() / '.local/share/esrgan-APP/Resources/realesrgan_logo.png'
+        if icon_path.exists():
+            self.tray_icon.setIcon(QIcon(str(icon_path)))
+        else:
+            # If the logo is missing (install.sh not run), use a standard system icon
+            self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
+
+        # Tray Menu
+        self.tray_menu = QMenu()
+
+
+        # Tray Menu
+        self.tray_menu = QMenu()
+        show_action = self.tray_menu.addAction("Show GUI")
+        show_action.triggered.connect(self.showNormal)
+        quit_action = self.tray_menu.addAction("Exit")
+        quit_action.triggered.connect(QApplication.instance().quit)
+
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.setToolTip("ESRGAN Processor - Ready")
+        self.tray_icon.show()
+
+        # Timer for live GPU stats in the tray
+        from PyQt5.QtCore import QTimer
+        self.stats_timer = QTimer()
+        self.stats_timer.timeout.connect(self.refresh_tray_stats)
+        self.stats_timer.setInterval(250)  # Update every 250ms
+
         self.initUI()
 
     def initUI(self):
@@ -293,11 +404,11 @@ class ESRGANGui(QMainWindow):
         self.setWindowTitle('ESRGAN Image Processor by Nikki Cooper')
         self.setGeometry(100, 100, 800, 700)
 
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.setFixedWidth(800)
-        self.setFixedHeight(715)
+        # Use setMinimumHeight instead of setFixedHeight to allow scaling on 4K monitors
+        self.setMinimumHeight(725)
         layout = QVBoxLayout(central_widget)
 
         # Root directory selection
@@ -379,7 +490,6 @@ class ESRGANGui(QMainWindow):
 
         layout.addLayout(list_layout)  # Add the list layout to the main layout
 
-
         # ESRGAN Model selection with Help button
         model_layout = QHBoxLayout()
         model_label = QLabel('ESRGAN Model:')
@@ -406,6 +516,8 @@ class ESRGANGui(QMainWindow):
             'RealESRGAN_x4plus_anime_6B'
         ])
         self.model_combo.setFixedWidth(275)  # Adjust this value as needed
+        # Trigger suffix update when the model changes
+        self.model_combo.currentTextChanged.connect(self.update_auto_suffix)
 
         help_icon = Path.home() / '.local/share/esrgan-APP/Resources/help.png'
         # Add Help button
@@ -419,7 +531,7 @@ class ESRGANGui(QMainWindow):
         model_layout.addWidget(self.model_combo)
         model_layout.addWidget(self.model_help_btn)
         model_layout.setSpacing(115)
-        #model_layout.addStretch()
+        # model_layout.addStretch()
         layout.addLayout(model_layout)
 
         # Output directory
@@ -449,8 +561,8 @@ class ESRGANGui(QMainWindow):
         output_layout.addWidget(self.output_path)
         output_layout.addStretch()
         output_layout.addWidget(browse_output_btn)
-        #output_layout.setSpacing(80)
-        #output_layout.addStretch()
+        # output_layout.setSpacing(80)
+        # output_layout.addStretch()
         layout.addLayout(output_layout)
 
         # Parameters section
@@ -497,6 +609,32 @@ class ESRGANGui(QMainWindow):
         label_width = 100  # Adjust this value as needed
         widget_spacing = 300
 
+        # Denoise Strength (only for x4v3)
+        denoise_layout = QHBoxLayout()
+        self.denoise_label = QLabel('Denoise Strength:')
+        self.denoise_label.setFixedWidth(label_width)
+        self.denoise_spin = QDoubleSpinBox()
+        self.denoise_spin.setToolTip("""
+             <div style='white-space: nowrap;'>
+                 <h3 style='color: #ff55ff; text-align:center;'>Denoise Strength</h3>
+                 • Only used for the <b>realesr-general-x4v3</b> model.<br>
+                 • <b>0</b> = Weak denoise (keep noise/grain).<br>
+                 • <b>1</b> = Strong denoise ability.<br>
+                 • <span style='color: #ff55ff';>Default:</span> <span style='color: #00ff7f;'>0.5</span>
+             </div>
+         """)
+        self.denoise_spin.setRange(0.0, 1.0)
+        self.denoise_spin.setSingleStep(0.1)
+        self.denoise_spin.setValue(0.5)
+        denoise_layout.addWidget(self.denoise_label)
+        denoise_layout.addWidget(self.denoise_spin)
+        denoise_layout.setSpacing(widget_spacing)
+        denoise_layout.addStretch()
+        params_layout.addLayout(denoise_layout)
+
+        # Checkboxes layout (Face Enhance & Fp32)
+        check_layout = QHBoxLayout()
+
         # Outscale
         outscale_layout = QHBoxLayout()
         outscale_label = QLabel('Outscale:')
@@ -517,10 +655,10 @@ class ESRGANGui(QMainWindow):
         </div>
         """)
 
-        self.outscale_spin.setRange(0.1, 4.0)       # Allow values from 0.1 to 4.0
-        self.outscale_spin.setSingleStep(0.01)              # Set step size to 0.01
-        self.outscale_spin.setDecimals(2)                   # Show 2 decimal places
-        self.outscale_spin.setValue(1.0)                    # Set default value to 1.0
+        self.outscale_spin.setRange(0.1, 4.0)  # Allow values from 0.1 to 4.0
+        self.outscale_spin.setSingleStep(0.01)  # Set step size to 0.01
+        self.outscale_spin.setDecimals(2)  # Show 2 decimal places
+        self.outscale_spin.setValue(1.0)  # Set default value to 1.0
         outscale_layout.addWidget(outscale_label)
         outscale_layout.addWidget(self.outscale_spin)
         outscale_layout.setSpacing(widget_spacing)
@@ -543,7 +681,7 @@ class ESRGANGui(QMainWindow):
             • <span style="color: #ff55ff";>Default:</span> <span style="color: #00ff7f;">800</span><br> 
         </div>  
         """)
-        self.tile_spin.setRange(0, 1000)
+        self.tile_spin.setRange(0, 4000)
         self.tile_spin.setValue(800)
         tile_layout.addWidget(tile_label)
         tile_layout.addWidget(self.tile_spin)
@@ -624,10 +762,25 @@ class ESRGANGui(QMainWindow):
         </div>
         """)
 
+        # FP32 Checkbox
+        self.fp32_check = QCheckBox('Use FP32 (Precision)')
+        self.fp32_check.setToolTip("""
+            <div style='white-space: nowrap;'>
+                <h3 style="color: #ff55ff; text-align:center;">FP32 Precision</h3>
+                • Uses 32-bit floating point instead of 16-bit.<br>
+                • Increases stability on some GPUs (prevents black images/artifacts).<br>
+                • Uses more VRAM and is slightly slower.<br>
+                • Recommended for high-end GPUs or when encountering errors.
+            </div>
+        """)
+
         params_layout.addWidget(self.face_enhance_check)
+        check_layout.addWidget(self.fp32_check)
+        check_layout.addStretch()
+        params_layout.addLayout(check_layout)
+
 
         layout.addLayout(params_layout)
-
         # Progress and control section
         progress_layout = QHBoxLayout()
 
@@ -667,8 +820,8 @@ class ESRGANGui(QMainWindow):
         self.refresh_studios()
         # Add all controls to the list for easy enabling/disabling
         self.controls = [
-            self.root_dir_path,     # Add root directory text input
-            self.studio_combo,      # Add studio dropdown
+            self.root_dir_path,  # Add root directory text input
+            self.studio_combo,  # Add studio dropdown
             self.model_combo_name,  # Add model dropdown
             self.model_combo,
             self.sets_list,
@@ -677,14 +830,18 @@ class ESRGANGui(QMainWindow):
             self.tile_spin,
             self.tile_pad_spin,
             self.gpu_spin,
+            self.denoise_spin,
             self.face_enhance_check,
+            self.fp32_check,
             self.format_combo,
             self.suffix_input,
             self.process_btn,
             # Add browse buttons
             browse_output_btn,
-            browse_root_dir_btn     # Add root directory browse button
+            browse_root_dir_btn  # Add root directory browse button
         ]
+        # Manually trigger the suffix update for the initial selection
+        self.update_auto_suffix(self.model_combo.currentText())
 
     def process_button_clicked(self):
         """Handle the process/cancel button clicks"""
@@ -694,17 +851,17 @@ class ESRGANGui(QMainWindow):
             self.cancel_processing()
 
     def toggle_pause(self):
-            if not self.processor:
-                return
+        if not self.processor:
+            return
 
-            if self.pause_btn.text() == 'Pause':
-                self.processor.pause()
-                self.pause_btn.setText('Resume')
-                self.is_paused = True
-            else:
-                self.processor.resume()
-                self.pause_btn.setText('Pause')
-                self.is_paused = False
+        if self.pause_btn.text() == 'Pause':
+            self.processor.pause()
+            self.pause_btn.setText('Resume')
+            self.is_paused = True
+        else:
+            self.processor.resume()
+            self.pause_btn.setText('Pause')
+            self.is_paused = False
 
     def disable_controls(self):
         """Disable all controls during processing"""
@@ -721,7 +878,8 @@ class ESRGANGui(QMainWindow):
             (self.outscale_spin, 'Outscale:'),
             (self.tile_spin, 'Tile:'),
             (self.tile_pad_spin, 'Tile Pad:'),
-            (self.gpu_spin, 'GPU ID:')
+            (self.gpu_spin, 'GPU ID:'),
+            (self.denoise_spin, 'Denoise Strength:')
         ]
 
         # Disable each control and find its corresponding label
@@ -736,6 +894,7 @@ class ESRGANGui(QMainWindow):
         # Disable other controls
         self.sets_list.setEnabled(False)
         self.face_enhance_check.setEnabled(False)
+        self.fp32_check.setEnabled(False)
         self.process_btn.setEnabled(True)  # Keep this enabled for cancellation
         self.process_btn.setText('Cancel Processing')
         self.process_btn.setToolTip('Click to cancel processing')
@@ -764,7 +923,8 @@ class ESRGANGui(QMainWindow):
             (self.outscale_spin, 'Outscale:'),
             (self.tile_spin, 'Tile:'),
             (self.tile_pad_spin, 'Tile Pad:'),
-            (self.gpu_spin, 'GPU ID:')
+            (self.gpu_spin, 'GPU ID:'),
+            (self.denoise_spin, 'Denoise Strength:')
         ]
 
         for control, label_text in control_label_pairs:
@@ -778,6 +938,7 @@ class ESRGANGui(QMainWindow):
         # Re-enable other controls
         self.sets_list.setEnabled(True)
         self.face_enhance_check.setEnabled(True)
+        self.fp32_check.setEnabled(True)
         self.process_btn.setEnabled(True)
         self.process_btn.setText('Process Selected Sets')
 
@@ -790,6 +951,23 @@ class ESRGANGui(QMainWindow):
         self.pause_btn.setEnabled(False)
         self.pause_btn.setText('Pause')
         self.is_paused = False
+
+    def update_auto_suffix(self, model_name):
+        """Automatically update the suffix based on the selected ESRGAN model"""
+        mapping = {
+            'realesr-general-x4v3': 'x4v3',
+            'RealESRGAN_x4plus': 'x4plus',
+            'RealESRNet_x4plus': 'net_x4plus',
+            'RealESRGAN_x2plus': 'x2plus',
+            'RealESRGAN_x4plus_anime_6B': 'x4plus_anime6b'
+        }
+        if model_name in mapping:
+            self.suffix_input.setText(mapping[model_name])
+
+        # Only enable denoise strength for the x4v3 model
+        is_x4v3 = (model_name == 'realesr-general-x4v3')
+        self.denoise_spin.setEnabled(is_x4v3)
+        self.denoise_label.setEnabled(is_x4v3)
 
     def browse_root_dir(self):
         dir_path = QFileDialog.getExistingDirectory(
@@ -839,7 +1017,8 @@ class ESRGANGui(QMainWindow):
         """Populate the sets list based on selected model"""
         self.sets_list.clear()
         if not all([self.root_dir, self.current_studio, self.current_model]):
-            print(f"Missing required paths: root_dir={bool(self.root_dir)}, studio={bool(self.current_studio)}, model={bool(self.current_model)}")
+            print(
+                f"Missing required paths: root_dir={bool(self.root_dir)}, studio={bool(self.current_studio)}, model={bool(self.current_model)}")
             return
 
         model_path = self.root_dir / self.current_studio / self.current_model
@@ -857,17 +1036,17 @@ class ESRGANGui(QMainWindow):
                 for f in set_dir.iterdir():
                     if f.is_file() and f.suffix.lower() in image_exts:
                         has_images = True
-                        #break
+                        # break
                         self.image_count += 1
 
                 if has_images:
                     sets.append(set_dir.name)
-                    #print(f"Found set: {set_dir.name} in {model_path} with {self.image_count} images.")
-                #else:
+                    # print(f"Found set: {set_dir.name} in {model_path} with {self.image_count} images.")
+                # else:
                 #    print(f"No valid images found in set: {set_dir.name}")
 
         # Print the final list of sets found
-        #print(f"Total sets found: {len(sets)}")
+        # print(f"Total sets found: {len(sets)}")
         if sets:
             self.sets_list.addItems(sets)
         else:
@@ -920,6 +1099,8 @@ class ESRGANGui(QMainWindow):
             tile_pad=self.tile_pad_spin.value(),
             gpu_id=self.gpu_spin.value(),
             face_enhance=self.face_enhance_check.isChecked(),
+            fp32=self.fp32_check.isChecked(),
+            denoise_strength=self.denoise_spin.value(),  # Grab value from the UI here
             suffix=self.suffix_input.text(),
             ext=self.format_combo.currentText()
         )
@@ -928,21 +1109,48 @@ class ESRGANGui(QMainWindow):
         self.processor.error.connect(self.show_error)
         self.processor.error_recovery_signal.connect(self.show_recovery_error)
         self.processor.finished.connect(self.processing_finished)
+
         self.processor.start()
+
+        # for the nvidia timer in the systray
+        self.stats_timer.start()
 
     def processing_finished(self):
         self.enable_controls()
-        self.process_btn.setText('Process Selected Sets')  # Reset button text
+
+        if hasattr(self, 'stats_timer'):
+            self.stats_timer.stop()
+
+        self.process_btn.setText('Process Selected Sets')
+
         if hasattr(self, 'is_cancelling') and self.is_cancelling:
-            self.progress_label.setText("Processing cancelled!")
-            self.is_cancelling = False
+            finish_msg = "Processing cancelled!"
         else:
-            self.progress_label.setText("Processing complete!")
+            finish_msg = "Processing complete!"
+
+        self.last_tray_msg = finish_msg  # Reset stored message
+        self.progress_label.setText(finish_msg)
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.setToolTip(f"ESRGAN: {finish_msg}")
 
     def update_progress(self, message):
         self.progress_label.setText(message)
-        # Enable rich text interpretation
         self.progress_label.setTextFormat(Qt.RichText)
+
+        # Clean up and store the message for the tray timer to use
+        import re
+        self.last_tray_msg = re.sub('<[^<]+?>', '', message)[:120]
+
+        # Get the GPU stats if we are actually processing to show them immediately
+        gpu_info = ""
+        if self.processor and self.processor.isRunning():
+            stats = self.get_gpu_stats()
+            if stats:
+                gpu_info = f"\n{stats}"
+
+        # Update the tray icon's hover text (ToolTip)
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.setToolTip(f"ESRGAN: {self.last_tray_msg}{gpu_info}")
 
     def show_error(self, message):
         if hasattr(self, 'is_cancelling') and self.is_cancelling:
@@ -963,7 +1171,7 @@ class ESRGANGui(QMainWindow):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowTitle("Real-ESRGAN Inference Error")
-        msg.setText("An error occurred during processing.")
+        msg.setText("An error occurred during image processing.")
         msg.setInformativeText(message)
 
         continue_btn = msg.addButton("Continue", QMessageBox.ActionRole)
@@ -1075,25 +1283,68 @@ Processing Tips:
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Could not load help file: {str(e)}")
 
+    def get_gpu_stats(self):
+        """Fetch live GPU stats with condensed formatting including fan speed"""
+        try:
+            gpu_id = self.gpu_spin.value()
+            n_smi = "/usr/bin/nvidia-smi"
+            # Added fan.speed to the query
+            query = "--query-gpu=utilization.gpu,power.draw,memory.used,memory.total,temperature.gpu,temperature.gpu.tlimit,fan.speed"
+            fmt = "--format=csv,noheader,nounits"
+
+            cmd = f"{n_smi} -i {gpu_id} {query} {fmt}"
+            result = subprocess.check_output(cmd, shell=True, text=True, timeout=1).strip()
+            parts = [p.strip() for p in result.split(',')]
+
+            if len(parts) >= 7:
+                util = parts[0]
+                power = parts[1].split('.')[0]
+                used_mb = parts[2]
+                total_mb = parts[3]
+                cur_temp = parts[4]
+                max_temp = parts[5]
+                fan = parts[6]
+
+                used_gb = round(float(used_mb) / 1024, 1)
+                total_gb = round(float(total_mb) / 1024, 0)
+
+                # Temperature logic
+                temp_display = cur_temp
+                if max_temp.isdigit():
+                    temp_display = f"{cur_temp}/{max_temp}"
+
+                # Fan logic (handle [NA] if it's a passive card or laptop)
+                fan_display = f" | Fan: {fan}%" if fan.isdigit() else ""
+
+                # Condensed format: 85% | 240W | 74°C | F:45% | 10.5/20G
+                return f"{util}% | {power}W | {temp_display}°C{fan_display} | {used_gb}/{total_gb}G"
+
+            return "GPU: Polling..."
+        except Exception:
+            return ""
+
+    def refresh_tray_stats(self):
+        """Update the tray tooltip with fresh GPU data while running"""
+        if self.processor and self.processor.isRunning():
+            gpu_info = self.get_gpu_stats()
+
+            # Alternate between one and two spaces to force Plasma to refresh the tooltip
+            import time
+            marker = " " if int(time.time() * 2) % 2 == 0 else "  "
+
+            status_text = f"ESRGAN: {self.last_tray_msg}\n{gpu_info}{marker}"
+
+            # Force redraw
+            self.tray_icon.setToolTip(status_text)
 
 def main(argv=None):
     """
     Main entry point of the application.
-
-    This function initializes the Qt application, defines a custom style sheet for
-    the application user interface, and applies it. It then creates an instance
-    of the main GUI, shows it, and starts the application's event loop.
-
-    The style sheet customizes the appearance of various Qt widgets, such as
-    QMainWindow, QLabel, QPushButton, QComboBox, QListWidget, QLineEdit,
-    QSpinBox, QCheckBox, and QProgressBar. The customization includes colors,
-    borders, hover and pressed states, and other style properties.
-
-    The function also ensures the proper termination of the application by
-    calling `sys.exit` with the result of the application's main event loop.
-
-    :raises SystemExit: If the application fails to run or exits.
     """
+    # Force X11 mode and enable High-DPI scaling for 4K monitors on Arch
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     if argv is None:
         argv = sys.argv
@@ -1107,25 +1358,6 @@ def main(argv=None):
     parser.addVersionOption()
     parser.process(app)
 
-    # Define the style sheet
-    '''
-    The style sheet defines the appearance of various Qt widgets. It includes
-    colors, borders, hover and pressed states, and other style propertie.
-    
-    The colors used are:
-        Main background: #2b2b2b (dark gray)
-        Widget background: #3c3c3c (lighter gray)
-        Accent color: #3d8ec9 (blue)
-        Text: #ffffff (white)
-        Borders: #474d54 (medium gray)  
-        
-        You can customize any of these colors by changing the hex codes. Some tips for customizing:
-        
-        1. To change the main theme color, replace #3d8ec9 with your preferred color
-        2. For lighter/darker variants, adjust the hex values up/down
-        3. Test contrast ratios to ensure text remains readable
-        4. Use CSS-like selectors to target specific widgets
-    '''
     style_sheet = """
         QMainWindow {
             background-color: #2a2e32;
@@ -1133,7 +1365,7 @@ def main(argv=None):
 
         QLabel {
             color: #ffffff;
-            font-size: 16px;
+            font-size: 12px;
         }
 
         QLabel:disabled {
@@ -1144,8 +1376,9 @@ def main(argv=None):
             background-color: #31363b;
             color: white;
             border: 1px solid #6e7175;
-            padding: 5px 15px;
+            padding: 5px 12px;
             border-radius: 4px;
+            font-size: 12px;
             font-weight: bold;
         }
 
@@ -1195,24 +1428,24 @@ def main(argv=None):
             border: 1px solid #3d8ec9;
             background-color: #213e4c;
         }
-        
+
         QListWidget:disabled {
             background-color: #2f3338;
             border: 1px solid #3e4247;
         }
 
         QListWidget::item:disabled {
-            color: #3e4247;  /* Gray out unselected items */
+            color: #3e4247;
         }
 
         QListWidget::item:disabled:selected {
-            color: #a0a0a0;  /* Keep selected items more visible but still indicate disabled */
-            background-color: #2a5773;  /* Darker version of the selection color */
+            color: #a0a0a0;
+            background-color: #2a5773;
         }
 
         QListWidget:hover {
             border: 1px solid #3d8ec9;
-            
+
         }
 
 
@@ -1243,20 +1476,19 @@ def main(argv=None):
             max-width: 70px;
             border-right: none;
         }
-        
+
         QSpinBox:disabled {
             background-color: #2f3338;
             color: #3e4247;
             border: 1px solid #3e4247;
         }
-        
+
         QSpinBox::up-button {
             background-color: #2d3235;
             subcontrol-origin: border;
             subcontrol-position: top right;
             width: 14px;
             color: white;
-            /* Add border to match main spinbox */
             border: 1px solid #474d54;
             border-left: none;
             border-bottom: none;
@@ -1269,7 +1501,6 @@ def main(argv=None):
             subcontrol-position: bottom right;
             width: 14px;
             color: white;
-            /* Add border to match main spinbox */
             border: 1px solid #474d54;
             border-left: none;
             border-bottom-right-radius: 3px;
@@ -1288,7 +1519,7 @@ def main(argv=None):
             width: 0px;
             height: 0px;
         }
-        
+
         QSpinBox::down-arrow {
             background-color: transparent;
             border-left: 3px solid none;
@@ -1297,11 +1528,11 @@ def main(argv=None):
             width: 0px;
             height: 0px;
         }
-        
+
         QSpinBox::up-arrow:disabled {
             border-bottom: 3px solid #3e4247;
         }
-        
+
         QSpinBox::down-arrow:disabled {
             border-top: 3px solid #3e4247;
         }
@@ -1323,13 +1554,13 @@ def main(argv=None):
             max-width: 70px;
             border-right: none;
         }
-        
+
         QDoubleSpinBox:disabled {
             background-color: #2f3338;
             color: #3e4247;
             border: 1px solid #3e4247;
         }
-        
+
         QDoubleSpinBox::up-button {
             background-color: #2d3235;
             subcontrol-origin: border;
@@ -1366,7 +1597,7 @@ def main(argv=None):
             width: 0px;
             height: 0px;
         }
-        
+
         QDoubleSpinBox::down-arrow {
             background-color: transparent;
             border-left: 3px solid none;
@@ -1375,11 +1606,11 @@ def main(argv=None):
             width: 0px;
             height: 0px;
         }
-        
+
         QDoubleSpinBox::up-arrow:disabled {
             border-bottom: 3px solid #3e4247;
         }
-        
+
         QDoubleSpinBox::down-arrow:disabled {
             border-top: 3px solid #3e4247;
         }
@@ -1411,14 +1642,6 @@ def main(argv=None):
             border: 1px solid #474d54;
         }
 
-        /*
-        QCheckBox::indicator:checked {
-            background-color: #3e738f;
-            border: 1px solid #64c8ff;
-            image: url(self.checkmark);
-        }
-        */
-
         QProgressBar {
             border: 1px solid #474d54;
             border-radius: 3px;
@@ -1438,6 +1661,7 @@ def main(argv=None):
     gui = ESRGANGui()
     gui.show()
     sys.exit(app.exec_())
+
 
 if __name__ == '__main__':
     main()

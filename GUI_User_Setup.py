@@ -6,7 +6,7 @@
 #
 from pathlib import Path
 # Constants
-# Specify the path to your Real-ESARGAN inference script
+# Specify the path to your Real-ESRGAN inference script
 REAL_ESRGAN_SCRIPT = "/path_to_local_Real-ESRGAN-Repo/src/inference_realesrgan.py"
 # Specify the default image output ROOT directory
 DEFAULT_OUTPUT_DIR = Path("~/AI_IMAGES").expanduser()

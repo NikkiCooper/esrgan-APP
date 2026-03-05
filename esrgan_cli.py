@@ -9,8 +9,16 @@ import re
 import subprocess
 from pathlib import Path
 import shutil
+import warnings
+import time
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
+
+Image.MAX_IMAGE_PIXELS = None
+
 from Bcolors import Bcolors
 from CLI_User_Setup import *
+
 try:
     from CLI_User_Setup_local import *
 except ImportError:
@@ -20,6 +28,10 @@ bc = Bcolors()
 
 global opts
 global ROOT_DIR
+
+# Suppress deprecation warnings from libraries like torchvision and torch
+warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 # ===== FUNCTIONS =====
 def run_esrgan_on_file(img: Path, suffix: str):
@@ -42,26 +54,65 @@ def run_esrgan_on_file(img: Path, suffix: str):
     output_dir = OUTPUT_ROOT / opts.rel_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Build command dynamically to keep it clean
     cmd = [
-        "python", REAL_ESRGAN_SCRIPT,
+        "python", "-W", "ignore", REAL_ESRGAN_SCRIPT,
         "-n", MODEL_NAME,
         "-i", str(img),
         "-o", str(output_dir),
-        "--outscale", OUTSCALE,
-        "--gpu-id", GPU_ID,
+        "--outscale", str(OUTSCALE), # Force cast to string
+        "--gpu-id", str(GPU_ID),
         "--ext", EXT,
-        "--tile", TILE,
-        "--tile_pad", TILE_PAD
+        "--tile", str(TILE),
+        "--tile_pad", str(TILE_PAD)
     ]
 
     if opts.suffix:
         cmd.extend(["--suffix", suffix])
-
     if opts.face_enhance:
         cmd.append("--face_enhance")
+    if opts.fp32:
+        cmd.append("--fp32")
+    if MODEL_NAME == "realesr-general-x4v3":
+        cmd.extend(["-dn", DENOISE_STRENGTH])
 
-    print(f"🖼{bc.BOLD}{bc.Light_Yellow_f} Processing{bc.Green_f} {img.name}{bc.Light_Yellow_f} → {bc.Light_Blue_f}{output_dir}{bc.RESET}")
+    print(
+        f"🖼{bc.BOLD}{bc.Light_Yellow_f} Processing{bc.Green_f} {img.name}{bc.Light_Yellow_f} → {bc.Light_Blue_f}{output_dir}{bc.RESET}")
     subprocess.run(cmd, check=True)
+
+    if not opts.disable_exif:
+        # --- METADATA STAMPING ---
+        out_name = f"{img.stem}_{suffix}.{EXT}"
+        output_file = output_dir / out_name
+
+        if output_file.exists():
+            try:
+                # Small wait for the writer thread to release the file
+                time.sleep(0.5)
+                dna_parts = [
+                    f"Real-ESRGAN Processor - Nikki Cooper",
+                    f"Model: {MODEL_NAME}",
+                    f"Denoise: {DENOISE_STRENGTH if MODEL_NAME == 'realesr-general-x4v3' else 'N/A'}",
+                    f"Outscale: {OUTSCALE}",
+                    f"Tile: {TILE}",
+                    f"TilePad: {TILE_PAD}",
+                    f"FaceEnhance: {'Enabled' if opts.face_enhance else 'Disabled'}",
+                    f"FP32: {'Enabled' if opts.fp32 else 'Disabled'}"
+                ]
+                dna = " | ".join(dna_parts)
+
+                im = Image.open(output_file)
+                if output_file.suffix.lower() == '.png':
+                    metadata = PngInfo()
+                    metadata.add_text("ESRGAN_Process_DNA", dna)
+                    im.save(output_file, pnginfo=metadata)
+                else:
+                    exif = im.getexif()
+                    comment = b'ASCII\0\0\0' + dna.encode('ascii', errors='replace')
+                    exif[0x9286] = comment
+                    im.save(output_file, exif=exif, quality=95, subsampling=0)
+            except Exception as e:
+                print(f"{bc.Red_f}Metadata Error: {e}{bc.RESET}")
 
 def run_esrgan_on_folder(input_dir: Path, suffix: str):
     """
@@ -79,7 +130,10 @@ def run_esrgan_on_folder(input_dir: Path, suffix: str):
     :rtype: Path
     """
     exts = {".jpg", ".jpeg", ".png"}
+
+    # FIX: Calculate rel_path from input_dir instead of relying on uninitialized opts.rel_path
     opts.rel_path = input_dir.relative_to(ROOT_DIR)
+
     output_dir = OUTPUT_ROOT / opts.rel_path
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,6 +142,7 @@ def run_esrgan_on_folder(input_dir: Path, suffix: str):
             run_esrgan_on_file(img, suffix)
 
     return opts.rel_path  # return relative path for patching
+
 
 def find_image_dirs(parent_dir):
     """
@@ -114,6 +169,7 @@ def find_image_dirs(parent_dir):
                 result.append(subdir.relative_to(parent))
 
     return result
+
 
 def get_sets_to_process(model_dir: Path, sets_arg):
     """
@@ -157,6 +213,7 @@ def get_sets_to_process(model_dir: Path, sets_arg):
         if (model_dir / set_name).is_dir()
     ]
 
+
 def unique_sets():
     """Remove duplicates from --sets while preserving order."""
     if opts.sets is None:
@@ -169,6 +226,7 @@ def unique_sets():
             unique.append(s)
     opts.sets = unique
 
+
 def sets_exist():
     sets = []
     if opts.sets is None:
@@ -180,10 +238,11 @@ def sets_exist():
     absolute_input = ROOT_DIR / opts.Path
 
     for set_name in sorted(opts.sets):
-        if (absolute_input/set_name).is_dir():
+        if (absolute_input / set_name).is_dir():
             sets.append(set_name)
 
     opts.sets = sets
+
 
 def print_options():
     """
@@ -224,18 +283,25 @@ def print_options():
 
     print(f"{bc.Light_Blue_f}--ext: {bc.Green_f}{opts.ext}")
     print(f"{bc.Light_Blue_f}--model:  {bc.Green_f}{opts.model}")
-    print(f"{bc.Light_Blue_f}--face_enhance: {bc.White_f}{'Enabled' if opts.face_enhance else 'Disabled'}")
     print(f"{bc.Light_Blue_f}--tile:{bc.Green_f} {opts.tile}")
     print(f"{bc.Light_Blue_f}--tile_pad:{bc.Green_f} {opts.tile_pad}")
     print(f"{bc.Light_Blue_f}--outscale:{bc.Green_f} {opts.outscale}")
+    print(f"{bc.Light_Blue_f}--face_enhance: {bc.White_f}{'Enabled' if opts.face_enhance else 'Disabled'}")
+    if opts.model == 'x4v3':
+        dn_val = f"{bc.Green_f}{DENOISE_STRENGTH}"
+    else:
+        dn_val = f"{bc.Yellow_f}N/A"
+    print(f"{bc.Light_Blue_f}--denoise_strength: {dn_val}")
     print(f"{bc.Light_Blue_f}--gpu_id:{bc.Green_f} {opts.gpu_id}")
+    print(f"{bc.Light_Blue_f}--disable_exif:{bc.White_f} {'Enabled' if opts.disable_exif else 'Disabled'}")
+    print(f"{bc.Light_Blue_f}--fp32:{bc.White_f} {'Enabled' if opts.fp32 else 'Disabled'}")
     print()
 
-def main(argv=None):
 
+def main(argv=None):
     global opts
     global REAL_ESRGAN_SCRIPT, ROOT_PRESETS, OUTPUT_ROOT, ROOT_DIR
-    global MODEL_NAME, OUTSCALE, TILE, TILE_PAD, GPU_ID, EXTROOT_DIR, MODEL_NAME, OUTSCALE, TILE, TILE_PAD, GPU_ID, EXT
+    global MODEL_NAME, EXTROOT_DIR, OUTSCALE, TILE, TILE_PAD, GPU_ID, EXT, FP32, DENOISE_STRENGTH
 
     from cmdLineOpts import cmdLineOptions
     if argv is None:
@@ -267,6 +333,14 @@ def main(argv=None):
     GPU_ID = str(opts.gpu_id)
     EXT = str(opts.ext)
 
+    if opts.fp32:
+        FP32 = "--fp32"
+    else:
+        FP32 = ""
+
+    # Format denoise strength to 2 decimal places for the command and metadata
+    DENOISE_STRENGTH = f"{opts.denoise_strength:.2f}"
+
     # if opts.sets was set (--sets).
     # check the user supplied sets for uniqueness
     # unique_sets() will remove duplicate sets from the --sets string.
@@ -292,12 +366,12 @@ def main(argv=None):
             # print(f"opts.rel_path: {opts.rel_path}, len(opts.rel_path.parts) = {len(opts.rel_path.parts)}")
             if len(opts.rel_path.parts) == 3:
                 # rel_path looks like model/setnum/image. No Studio
-                model, setnum, image =  opts.rel_path.parts[-3:]
+                model, setnum, image = opts.rel_path.parts[-3:]
                 studio = None
             else:
                 # Now we know rel_path looks like studio/model/setnum/image
                 studio, model, setnum = opts.rel_path.parts[-4:-1]
-            #patch_imagination(model, setnum, studio, opts.suffix)
+            # patch_imagination(model, setnum, studio, opts.suffix)
 
     # Single file mode
     elif opts.Files:
@@ -305,10 +379,11 @@ def main(argv=None):
             abs_input = ROOT_DIR / image
             if abs_input.is_file():
                 run_esrgan_on_file(abs_input, opts.suffix)
-                print(f"ℹ️{bc.BOLD}{bc.Green_f} Single file processed —{bc.Light_Yellow_f} no slideshow patching performed.{bc.RESET}")
+                print(
+                    f"ℹ️{bc.BOLD}{bc.Green_f} Single file processed —{bc.Light_Yellow_f} no slideshow patching performed.{bc.RESET}")
 
     sys.exit(0)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     main()
