@@ -144,6 +144,7 @@ def run_esrgan_on_folder(input_dir: Path, suffix: str):
     return opts.rel_path  # return relative path for patching
 
 
+
 def find_image_dirs(parent_dir):
     """
     Recursively finds subdirectories within a given directory that contain
